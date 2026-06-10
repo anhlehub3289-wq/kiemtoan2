@@ -10,6 +10,22 @@ import os
 # Cấu hình trang giao diện rộng rãi (Wide mode)
 st.set_page_config(layout="wide", page_title="Hệ thống Phát hiện Gian lận Giao dịch", page_icon="🛡️")
 
+# --- TIÊM CSS TÙY CHỈNH: Giảm font chữ của các thẻ Metric để hiển thị đầy đủ dữ liệu không bị khuất ---
+st.markdown("""
+    <style>
+    [data-testid="stMetricValue"] {
+        font-size: 20px !important;  /* Thu nhỏ số tiền/số lượng để không bị tràn dòng */
+    }
+    [data-testid="stMetricLabel"] {
+        font-size: 13px !important;  /* Thu nhỏ tiêu đề cột metric */
+    }
+    /* Giúp bảng dữ liệu hiển thị font chữ tối ưu, gọn gàng hơn */
+    .dataframe {
+        font-size: 13px !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
 st.title("🛡️ Hệ thống Phát hiện Giao dịch Bất thường (Isolation Forest)")
 st.markdown("Ứng dụng hỗ trợ kiểm toán viên phân tích rủi ro dòng tiền lớn và gắn cờ giao dịch nghi vấn tự động.")
 
