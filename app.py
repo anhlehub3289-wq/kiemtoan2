@@ -136,32 +136,73 @@ else:
                     df["anomaly_score"] = model.decision_function(X_scaled)
                     df["is_anomaly"] = model.predict(X_scaled) == -1
                     
-                    df_bat_thuong = df[df['is_anomaly'] == True]
+                    df_bat_thuong = df[df['is_anomaly'] == True].copy()
                     st.success(f"Quá trình phân tích hoàn tất! Phát hiện thấy {len(df_bat_thuong)} giao dịch bất thường.")
                     
-                    # Trực quan hóa bằng biểu đồ phân tán
-                    df['Phân loại'] = df['is_anomaly'].map({True: 'Bất thường (Anomaly)', False: 'Bình thường (Normal)'})
-                    fig_scatter = px.scatter(df, x='gio_giao_dich', y='amount', color='Phân loại',
-                                             color_discrete_map={'Bình thường (Normal)': '#3B82F6', 'Bất thường (Anomaly)': '#EF4444'},
+                    # --- PHÂN PHỐI MỨC ĐỘ RỦI RO CHI TIẾT (QUANTILES) ---
+                    if len(df_bat_thuong) > 0:
+                        # Tính toán các mốc phân vị trên tập bất thường (điểm càng thấp rủi ro càng cao)
+                        q25 = df_bat_thuong['anomaly_score'].quantile(0.25)
+                        q50 = df_bat_thuong['anomaly_score'].quantile(0.50)
+                        q75 = df_bat_thuong['anomaly_score'].quantile(0.75)
+                        
+                        # Hàm phân loại mức độ rủi ro dựa trên mốc phân vị
+                        def phan_loai_rui_ro(score):
+                            if score <= q25:
+                                return "1. Khẩn cấp"
+                            elif score <= q50:
+                                return "2. Cao"
+                            elif score <= q75:
+                                return "3. Trung bình"
+                            else:
+                                return "4. Thấp"
+                        
+                        df_bat_thuong['muc_do_rui_ro'] = df_bat_thuong['anomaly_score'].apply(phan_loai_rui_ro)
+                        
+                        # Thống kê nhanh số lượng từng loại để Audit viên nắm thông tin
+                        st.markdown("#### 🎯 Thống kê Phân cấp Mức độ Rủi ro nghi vấn:")
+                        counts = df_bat_thuong['muc_do_rui_ro'].value_counts().sort_index()
+                        c1, c2, c3, c4 = st.columns(4)
+                        c1.metric("🚨 Bất thường Khẩn cấp", f"{counts.get('1. Khẩn cấp', 0)} GD")
+                        c2.metric("🟠 Bất thường Cao", f"{counts.get('2. Cao', 0)} GD")
+                        c3.metric("🟡 Bất thường Trung bình", f"{counts.get('3. Trung bình', 0)} GD")
+                        c4.metric("🔵 Bất thường Thấp", f"{counts.get('4. Thấp', 0)} GD")
+                    
+                    # Trực quan hóa bằng biểu đồ phân tán (Sử dụng mức độ rủi ro chi tiết mới làm màu sắc)
+                    df_plot = df.copy()
+                    df_plot['Phân loại rủi ro'] = 'Bình thường (Normal)'
+                    if len(df_bat_thuong) > 0:
+                        df_plot.loc[df_plot['is_anomaly'] == True, 'Phân loại rủi ro'] = df_bat_thuong['muc_do_rui_ro']
+                    
+                    fig_scatter = px.scatter(df_plot, x='gio_giao_dich', y='amount', color='Phân loại rủi ro',
+                                             color_discrete_map={
+                                                 'Bình thường (Normal)': '#3B82F6', 
+                                                 '1. Khẩn cấp': '#D61C4E',   # Đỏ đậm khẩn cấp
+                                                 '2. Cao': '#FF5F00',        # Cam rủi ro cao
+                                                 '3. Trung bình': '#FFB200',   # Vàng rủi ro trung bình
+                                                 '4. Thấp': '#4E9F3D'         # Xanh lá rủi ro thấp
+                                             },
                                              hover_data=['transaction_id', 'channel', 'location'],
                                              labels={'gio_giao_dich': 'Giờ giao dịch', 'amount': 'Số tiền (VND)'})
                     st.plotly_chart(fig_scatter, use_container_width=True)
                     
-                    # Hiển thị bảng danh sách rủi ro
+                    # Hiển thị bảng danh sách rủi ro đã phân cấp
                     st.markdown("#### 📋 Danh sách chi tiết các giao dịch rủi ro cao cần thanh tra")
                     if len(df_bat_thuong) > 0:
-                        st.dataframe(df_bat_thuong[['transaction_id', 'transaction_date', 'amount', 'transaction_type', 'channel', 'location', 'is_employee', 'anomaly_score']].sort_values(by='anomaly_score'), use_container_width=True)
+                        # Sắp xếp từ khẩn cấp/điểm rủi ro thấp nhất lên đầu
+                        df_hien_thi = df_bat_thuong[['transaction_id', 'transaction_date', 'amount', 'transaction_type', 'channel', 'location', 'is_employee', 'muc_do_rui_ro', 'anomaly_score']].sort_values(by='anomaly_score')
+                        st.dataframe(df_hien_thi, use_container_width=True)
                         
-                        # Nút tải file Excel báo cáo
+                        # Nút tải file Excel báo cáo phân cấp chi tiết
                         output = io.BytesIO()
                         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                            df_bat_thuong.to_excel(writer, index=False, sheet_name='Báo_cáo_rủi_ro')
+                            df_bat_thuong.sort_values(by='anomaly_score').to_excel(writer, index=False, sheet_name='Báo_cáo_rủi_ro_phân_cấp')
                         processed_data = output.getvalue()
                         
                         st.download_button(
-                            label="📥 Xuất dữ liệu Báo cáo Giao dịch Bất thường (Excel)",
+                            label="📥 Xuất dữ liệu Báo cáo Giao dịch Bất thường Phân cấp (Excel)",
                             data=processed_data,
-                            file_name="bao_cao_giao_dich_bat_thuong.xlsx",
+                            file_name="bao_cao_giao_dich_bat_thuong_phan_cap.xlsx",
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                         )
                     else:
